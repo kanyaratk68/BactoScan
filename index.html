@@ -21,8 +21,6 @@
         .laser-scanner { position: absolute; left: 0; width: 100%; height: 3px; background: #10b981; box-shadow: 0 0 15px 2px rgba(16, 185, 129, 0.7); animation: scanline 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; z-index: 10; display: none; }
         .scanning .laser-scanner { display: block; }
         .scanning img { filter: contrast(1.2) brightness(0.9) sepia(0.2) hue-rotate(90deg); transition: filter 0.5s; }
-        
-        /* ซ่อน Scrollbar สำหรับเนื้อหาใน Modal */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -125,6 +123,18 @@
         </div>
     </main>
 
+    <div id="duplicate-modal" class="modal-overlay" onclick="closeModal('duplicate-modal')">
+        <div class="bg-white w-full max-w-sm mx-4 rounded-3xl p-8 text-center shadow-2xl transform transition-all" onclick="event.stopPropagation()">
+            <div class="text-6xl mb-4 animate-bounce">🙏✨</div>
+            <h3 class="text-2xl font-black mb-2 text-slate-800">วิเคราะห์ไปแล้ว!</h3>
+            <p class="text-slate-500 text-sm mb-6 leading-relaxed">ขอบคุณที่ใช้งานครับ ระบบพบว่าภาพนี้<br>มีอยู่ในฐานข้อมูลการสแกนเรียบร้อยแล้ว<br>สามารถดูผลลัพธ์ย้อนหลังได้เลย</p>
+            <div class="flex gap-3">
+                <button onclick="closeModal('duplicate-modal'); resetScannerUI();" class="w-1/2 bg-slate-100 hover:bg-slate-200 py-3 rounded-xl font-bold transition-all text-slate-600 text-sm">อัปโหลดใหม่</button>
+                <button onclick="closeModal('duplicate-modal'); showPage('history');" class="w-1/2 bg-emerald-600 hover:bg-emerald-700 text-white py-3 rounded-xl font-bold transition-all text-sm shadow-md shadow-emerald-200">ไปดูประวัติ</button>
+            </div>
+        </div>
+    </div>
+
     <div id="detail-modal" class="modal-overlay" onclick="closeModal('detail-modal')">
         <div class="bg-white w-full max-w-2xl mx-4 rounded-[2rem] overflow-hidden flex flex-col max-h-[90vh] shadow-2xl" onclick="event.stopPropagation()">
             <div class="h-64 bg-slate-100 relative">
@@ -140,7 +150,6 @@
                 </div>
                 <h3 id="modal-name" class="text-3xl font-black italic text-slate-800 mb-3"></h3>
                 <p id="modal-detail" class="text-slate-600 mb-8 leading-relaxed font-medium"></p>
-                
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="bg-rose-50 rounded-2xl p-5 border border-rose-100">
                         <h4 class="text-rose-800 font-bold mb-2 flex items-center gap-2"><span>🤒</span> อาการที่พบ</h4>
@@ -186,7 +195,7 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
 
-        // 2. ข้อมูลเชื้อโรค (อัปเกรดให้ละเอียดขึ้นแบบสุดๆ)
+        // 2. ข้อมูลเชื้อโรค
         const pathogens = [
             { 
                 name: "Escherichia coli (E. coli)", 
@@ -239,7 +248,7 @@
             updateHistoryUI(); 
         });
 
-        // ระบบเลือกไฟล์
+        // ระบบเลือกไฟล์ (อัปเดตระบบเช็กรูปซ้ำ)
         function handleFile(event) {
             const file = event.target.files[0];
             if (file) {
@@ -255,6 +264,17 @@
                         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
                         const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); 
 
+                        // 🔴 เช็กรูปซ้ำในระบบ
+                        const isDuplicate = historyData.some(item => item.image === compressedDataUrl);
+                        
+                        if(isDuplicate) {
+                            // โชว์ Modal แจ้งเตือนรูปซ้ำ พร้อมเคลียร์ค่าที่เลือกไฟล์ไว้
+                            document.getElementById('duplicate-modal').classList.add('active');
+                            document.getElementById('file-input').value = "";
+                            return; // หยุดการทำงาน ไม่ให้ไปต่อ
+                        }
+
+                        // ถ้าไม่ซ้ำ ให้ไปต่อ
                         document.getElementById('preview-img').src = compressedDataUrl;
                         document.getElementById('preview-img').classList.remove('hidden');
                         document.getElementById('upload-ui').classList.add('hidden');
@@ -283,7 +303,6 @@
                 
                 const info = pathogens[Math.floor(Math.random() * pathogens.length)];
                 
-                // ดึงข้อมูลมาทั้งหมดรวมถึง อาการ การรักษา การป้องกัน
                 currentScanResult = { 
                     name: info.name, 
                     detail: info.detail, 
@@ -294,7 +313,6 @@
                     image: document.getElementById('preview-img').src
                 };
 
-                // ใส่ข้อมูลลงในหน้าจอโชว์ผล
                 document.getElementById('live-result-img').src = currentScanResult.image;
                 document.getElementById('live-result-name').innerText = currentScanResult.name;
                 document.getElementById('live-result-detail').innerText = currentScanResult.detail;
@@ -334,37 +352,29 @@
             }
         }
 
-        // ==========================================
-        // ฟังก์ชันใหม่: เปิดดูรายละเอียดแบบเต็ม (Modal)
-        // ==========================================
+        // เปิดดูรายละเอียดแบบเต็ม (Modal)
         function openDetailModal(docId) {
-            // ค้นหาข้อมูลจาก historyData ด้วย docId
             const item = historyData.find(d => d.docId === docId);
             if(!item) return;
 
-            // นำข้อมูลไปใส่ใน Modal
             document.getElementById('modal-img').src = item.image;
             document.getElementById('modal-name').innerText = item.name;
             document.getElementById('modal-detail').innerText = item.detail;
-            
-            // ใส่ข้อมูลที่เพิ่มมาใหม่ (ป้องกันบัคกรณีดึงของเก่าที่ไม่มีฟิลด์เหล่านี้)
             document.getElementById('modal-symptoms').innerText = item.symptoms || "ไม่มีข้อมูล";
             document.getElementById('modal-treatment').innerText = item.treatment || "ไม่มีข้อมูล";
             document.getElementById('modal-prevention').innerText = item.prevention || "ไม่มีข้อมูล";
 
-            // จัดการสีป้ายกำกับ
             const riskBadge = document.getElementById('modal-risk');
             riskBadge.innerText = item.risk;
             if(item.risk === 'CRITICAL') riskBadge.className = 'px-3 py-1 rounded-md text-[11px] font-black tracking-widest bg-rose-100 text-rose-600 border border-rose-200';
             else if(item.risk === 'WARNING') riskBadge.className = 'px-3 py-1 rounded-md text-[11px] font-black tracking-widest bg-amber-100 text-amber-600 border border-amber-200';
             else riskBadge.className = 'px-3 py-1 rounded-md text-[11px] font-black tracking-widest bg-emerald-100 text-emerald-600 border border-emerald-200';
 
-            // แสดง Modal
             document.getElementById('detail-modal').classList.add('active');
         }
 
         function promptDelete(docId, event) {
-            event.stopPropagation(); // สำคัญมาก! ป้องกันไม่ให้คลิกปุ่มลบ แล้วเด้งไปเปิดหน้า Detail
+            event.stopPropagation(); 
             currentDeleteDocId = docId; 
             document.getElementById('delete-password').value = '';
             document.getElementById('delete-error').classList.add('hidden');
@@ -417,6 +427,8 @@
         function resetScannerUI() {
             document.getElementById('file-input').value = "";
             document.getElementById('preview-img').src = "";
+            document.getElementById('preview-img').classList.add('hidden');
+            document.getElementById('image-container').classList.replace('py-0', 'py-20');
             document.getElementById('upload-ui').classList.remove('hidden');
             document.getElementById('result-section').classList.add('hidden');
             document.getElementById('upload-section').classList.remove('hidden');
@@ -440,7 +452,6 @@
                 else if(item.risk === 'WARNING') badgeClass = 'bg-amber-50 text-amber-600 border border-amber-100';
                 else badgeClass = 'bg-emerald-50 text-emerald-600 border border-emerald-100';
 
-                // เพิ่ม onclick ที่กรอบการ์ด ให้กดปุ๊บเปิดหน้าต่าง Detail โชว์ทันที (cursor-pointer เพิ่มให้รู้ว่ากดได้)
                 const card = `
                     <div onclick="openDetailModal('${item.docId}')" class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden relative hover:shadow-lg hover:-translate-y-1 cursor-pointer transition-all duration-300">
                         <button onclick="promptDelete('${item.docId}', event)" class="absolute top-4 right-4 bg-white/80 hover:bg-rose-600 text-slate-400 hover:text-white p-2.5 rounded-full z-10 shadow-sm transition-colors">
