@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BactoScan - Faculty of Nursing, RSU</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&family=Sarabun:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Sarabun', sans-serif; }
+        .font-kanit { font-family: 'Kanit', sans-serif; }
+        
+        /* สไตล์พื้นหลังมหาวิทยาลัยยุคใหม่ (RSU Theme) */
+        .rsu-modern-bg {
+            background-color: #f8fafc;
+            background-image: 
+                radial-gradient(at 90% 0%, rgba(219, 39, 119, 0.12) 0px, transparent 50%), /* RSU Pink Blur */
+                radial-gradient(at 0% 100%, rgba(30, 58, 138, 0.12) 0px, transparent 50%); /* RSU Blue Blur */
+            background-attachment: fixed;
+        }
+        
+        /* ลายจุดตาราง (Grid Pattern) ให้ดูล้ำสมัย */
+        .bg-grid {
+            background-size: 30px 30px;
+            background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            opacity: 0.6;
+        }
+
+        /* เอฟเฟกต์กระจกโปร่งแสง (Glassmorphism) */
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border-right: 1px solid rgba(255, 255, 255, 0.8);
+        }
+        .glass-header {
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.8);
+        }
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 1);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+        }
+        
+        .page { display: none; opacity: 0; transition: opacity 0.3s ease-in-out; }
+        .page.active { display: block; opacity: 1; }
+        .modal-overlay { display: none; align-items: center; justify-content: center; position: fixed; inset: 0; z-index: 100; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(6px); }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.2s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        @keyframes scanline { 0% { top: 0; opacity: 0; } 10% { opacity: 1; } 90% { opacity: 1; } 100% { top: 100%; opacity: 0; } }
+        .laser-scanner { position: absolute; left: 0; width: 100%; height: 2px; background: #db2777; box-shadow: 0 0 15px 2px rgba(219, 39, 119, 0.7); animation: scanline 2s cubic-bezier(0.4, 0, 0.2, 1) infinite; z-index: 10; display: none; }
+        .scanning .laser-scanner { display: block; }
+        .scanning img { filter: contrast(1.1) brightness(0.9) grayscale(0.2) hue-rotate(320deg); transition: filter 0.5s; }
+        
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .text-rsu-pink { color: #db2777; }
+        .bg-rsu-pink { background-color: #db2777; }
+        .text-rsu-blue { color: #1e3a8a; }
+        .bg-rsu-blue { background-color: #1e3a8a; }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden text-slate-800 relative rsu-modern-bg">
+    <div class="bg-grid"></div>
+
+    <div id="security-alert" class="absolute top-0 left-0 w-full bg-red-700/90 backdrop-blur-md text-white px-8 py-4 z-[200] flex justify-between items-center transition-transform duration-500 -translate-y-full shadow-lg">
+        <div class="flex items-center gap-4">
+            <svg class="w-8 h-8 text-white opacity-80" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+            <div>
+                <h4 class="font-kanit font-semibold text-lg tracking-wide">SYSTEM LOCKED / ระบบถูกล็อก</h4>
+                <p class="text-sm text-red-100">ตรวจพบการยืนยันตัวตนล้มเหลวเกินกำหนด กรุณาติดต่อผู้ดูแลระบบ</p>
+            </div>
+        </div>
+        <button onclick="dismissSecurityAlert()" class="bg-black/20 px-6 py-2 rounded-lg text-sm font-kanit font-medium border border-white/20 hover:bg-black/40 transition-all">รับทราบ</button>
+    </div>
+
+    <aside class="w-72 glass-panel flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-20 relative">
+        <div class="p-6 flex items-center gap-4 border-b border-slate-200/50">
+            <div class="w-12 h-12 bg-gradient-to-br from-blue-900 to-blue-700 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-900/20">
+                <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold font-kanit text-rsu-blue leading-tight tracking-wide">BactoScan</h1>
+                <p class="text-[10px] text-rsu-pink font-semibold uppercase tracking-widest mt-0.5">Faculty of Nursing, RSU</p>
+            </div>
+        </div>
+        <nav class="flex-1 p-4 space-y-1.5 mt-2">
+            <p class="px-4 text-[10px] font-bold font-kanit uppercase tracking-widest text-slate-400 mb-3">Navigation Menu</p>
+            
+            <button onclick="showPage('history')" id="nav-history" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-kanit font-medium text-sm bg-pink-50/80 text-rsu-pink border-r-4 border-rsu-pink shadow-sm">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg> 
+                ฐานข้อมูลผลการวิเคราะห์
+            </button>
+            
+            <button onclick="showPage('scanner')" id="nav-scanner" class="w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-kanit font-medium text-sm text-slate-500 hover:bg-slate-50 hover:text-slate-800 border-r-4 border-transparent">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg> 
+                เครื่องมือสแกนจุลชีววิทยา
+            </button>
+        </nav>
+        <div class="p-4 border-t border-slate-200/50">
+            <div class="bg-white/50 rounded-lg p-4 text-center border border-slate-200/50">
+                <p class="text-[10px] text-slate-500 font-kanit">ระบบสารสนเทศเพื่อการศึกษา</p>
+                <p class="text-xs font-semibold text-slate-700 mt-1">มหาวิทยาลัยรังสิต</p>
+            </div>
+        </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col h-screen overflow-hidden relative">
+        <header class="h-16 glass-header flex items-center justify-between px-8 z-10 sticky top-0 shadow-sm">
+            <h2 id="page-title" class="text-lg font-medium font-kanit text-slate-800 tracking-wide">ฐานข้อมูลผลการวิเคราะห์ทางห้องปฏิบัติการ</h2>
+            <div class="flex items-center gap-4">
+                <span class="flex items-center gap-2 text-xs font-kanit font-medium text-slate-600 bg-white/80 px-3 py-1.5 rounded-md border border-slate-200 shadow-sm">
+                    <span id="sync-dot" class="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span> <span id="sync-text">เชื่อมต่อเซิร์ฟเวอร์ RSU</span>
+                </span>
+            </div>
+        </header>
+
+        <div class="flex-1 overflow-y-auto p-8 relative z-0">
+            <div id="page-history" class="page active max-w-7xl mx-auto">
+                <div class="flex justify-between items-end mb-6 pb-4 border-b border-slate-200/60">
+                    <div>
+                        <h3 class="text-3xl font-semibold font-kanit text-rsu-blue tracking-wide drop-shadow-sm">Clinical Database</h3>
+                        <p class="text-slate-500 text-sm mt-1 font-medium">บันทึกผลการประเมินทางจุลชีววิทยา คณะพยาบาลศาสตร์</p>
+                    </div>
+                    <div class="text-right glass-card px-6 py-3 rounded-xl">
+                        <span id="scan-count" class="text-4xl font-bold font-kanit text-transparent bg-clip-text bg-gradient-to-r from-pink-600 to-pink-400">0</span>
+                        <p class="text-[10px] text-slate-400 font-kanit uppercase tracking-wider mt-1">รายการทั้งหมด</p>
+                    </div>
+                </div>
+                <div id="history-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"></div>
+            </div>
+
+            <div id="page-scanner" class="page max-w-5xl mx-auto">
+                <div id="upload-section" class="glass-card rounded-2xl overflow-hidden">
+                    <div class="p-6 border-b border-slate-100 bg-white/50 flex items-center gap-3">
+                        <svg class="w-6 h-6 text-rsu-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        <h2 class="text-xl font-semibold font-kanit text-slate-800">อัปโหลดตัวอย่างภาพถ่ายเซลล์</h2>
+                    </div>
+                    <div class="p-8">
+                        <div id="image-container" class="relative border-2 border-dashed border-slate-300 rounded-xl p-2 text-center cursor-pointer hover:bg-blue-50/50 hover:border-rsu-blue transition-all bg-white/50" onclick="if(!isScanning) document.getElementById('file-input').click()">
+                            <input type="file" id="file-input" class="hidden" accept="image/*" onchange="handleFile(event)">
+                            <div class="laser-scanner"></div>
+                            <div id="upload-ui" class="py-24 flex flex-col items-center justify-center">
+                                <div class="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 mb-4 text-slate-400 group-hover:scale-110 transition-transform">
+                                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4v16m8-8H4"></path></svg>
+                                </div>
+                                <p class="font-kanit font-medium text-slate-600 text-lg">คลิกเพื่อเลือกไฟล์ภาพ</p>
+                                <p class="text-xs text-slate-400 mt-2">รองรับไฟล์ JPG, PNG ความละเอียดมาตรฐาน</p>
+                            </div>
+                            <img id="preview-img" class="hidden w-full max-h-[450px] object-contain rounded-lg mx-auto z-0 relative shadow-sm">
+                        </div>
+                        <button id="analyze-btn" onclick="startScanning()" disabled class="w-full mt-6 bg-gradient-to-r from-blue-900 to-blue-700 hover:from-blue-800 hover:to-blue-600 text-white py-4 rounded-xl font-kanit font-medium text-lg disabled:opacity-40 transition-all shadow-lg shadow-blue-900/20">เริ่มต้นการวิเคราะห์ (Initiate Diagnostic)</button>
+                    </div>
+                </div>
+
+                <div id="result-section" class="hidden glass-card rounded-2xl overflow-hidden">
+                    <div class="p-4 border-b border-slate-100 bg-gradient-to-r from-blue-900 to-blue-800 text-white flex justify-between items-center">
+                        <h3 class="font-kanit font-medium">Diagnostic Report / รายงานผลการประเมิน</h3>
+                        <span class="text-xs opacity-80 font-mono">Ref: RSU-LAB-<span id="rand-ref"></span></span>
+                    </div>
+                    <div class="flex flex-col lg:flex-row">
+                        <div class="lg:w-2/5 bg-slate-50/50 p-6 border-r border-slate-200/50 flex items-center justify-center">
+                            <img id="live-result-img" class="max-w-full max-h-[300px] rounded-lg shadow-md border border-white">
+                        </div>
+                        <div class="lg:w-3/5 p-8 flex flex-col justify-between bg-white/80">
+                            <div>
+                                <h3 id="live-result-name" class="text-2xl font-bold italic text-slate-800 mb-3 border-b border-slate-100 pb-2"></h3>
+                                <div class="mb-5"><span id="live-result-risk" class="px-3 py-1 rounded border text-[11px] font-kanit tracking-wide font-medium"></span></div>
+                                <p id="live-result-detail" class="text-slate-600 mb-6 text-sm leading-relaxed"></p>
+                                
+                                <div class="space-y-3 mb-6">
+                                    <div class="bg-white/80 p-4 rounded-lg border border-slate-200 shadow-sm flex gap-3">
+                                        <svg class="w-5 h-5 text-red-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                                        <div><p class="text-xs font-kanit font-medium text-slate-700 mb-1">กลุ่มอาการที่พบบ่อย (Symptoms):</p><p id="live-result-symptoms" class="text-xs text-slate-600 line-clamp-2"></p></div>
+                                    </div>
+                                    <div class="bg-white/80 p-4 rounded-lg border border-slate-200 shadow-sm flex gap-3">
+                                        <svg class="w-5 h-5 text-blue-500 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg>
+                                        <div><p class="text-xs font-kanit font-medium text-slate-700 mb-1">การพยาบาล/รักษาเบื้องต้น (Intervention):</p><p id="live-result-treatment" class="text-xs text-slate-600 line-clamp-2"></p></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="flex gap-3 mt-4">
+                                <button onclick="discardAndRetry()" class="w-1/3 bg-white border border-slate-300 hover:bg-slate-50 text-slate-600 py-3 rounded-lg font-kanit font-medium transition-all text-sm">ยกเลิก</button>
+                                <button onclick="saveResult()" id="btn-save" class="w-2/3 bg-gradient-to-r from-pink-600 to-pink-500 hover:from-pink-700 hover:to-pink-600 text-white py-3 rounded-lg font-kanit font-medium transition-all text-sm shadow-md shadow-pink-500/30">บันทึกข้อมูลเข้าสู่ระบบ</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="duplicate-modal" class="modal-overlay" onclick="closeModal('duplicate-modal')">
+        <div class="bg-white/95 backdrop-blur-md w-full max-w-md mx-4 rounded-2xl p-6 shadow-2xl border-t-4 border-rsu-blue" onclick="event.stopPropagation()">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center shrink-0">
+                    <svg class="w-6 h-6 text-rsu-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold font-kanit text-slate-800">แจ้งเตือนข้อมูลซ้ำซ้อน</h3>
+                    <p class="text-sm text-slate-500 mt-1">ระบบตรวจสอบพบว่าภาพตัวอย่างนี้ ถูกบันทึกไว้ในฐานข้อมูลเรียบร้อยแล้ว</p>
+                </div>
+            </div>
+            <div class="flex gap-3 mt-6 border-t border-slate-100 pt-4">
+                <button onclick="closeModal('duplicate-modal'); resetScannerUI();" class="flex-1 bg-white border border-slate-300 hover:bg-slate-50 py-2.5 rounded-lg font-kanit font-medium transition-all text-slate-600 text-sm">รับทราบและอัปโหลดใหม่</button>
+                <button onclick="closeModal('duplicate-modal'); showPage('history');" class="flex-1 bg-rsu-blue hover:bg-blue-900 text-white py-2.5 rounded-lg font-kanit font-medium transition-all text-sm">ไปยังหน้าฐานข้อมูล</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="detail-modal" class="modal-overlay" onclick="closeModal('detail-modal')">
+        <div class="bg-white/95 backdrop-blur-md w-full max-w-3xl mx-4 rounded-2xl overflow-hidden flex flex-col max-h-[90vh] shadow-2xl border border-white" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center px-6 py-4 border-b border-slate-200 bg-slate-50/50">
+                <h3 class="font-kanit font-semibold text-slate-800 text-lg flex items-center gap-2">
+                    <svg class="w-5 h-5 text-rsu-blue" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                    Clinical Reference Data
+                </h3>
+                <button onclick="closeModal('detail-modal')" class="text-slate-400 hover:text-red-600 transition-colors bg-white rounded-full p-1 shadow-sm border border-slate-100">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            
+            <div class="overflow-y-auto no-scrollbar flex flex-col md:flex-row bg-white/50">
+                <div class="w-full md:w-2/5 bg-slate-50/80 p-6 flex flex-col justify-center border-r border-slate-200/50">
+                    <img id="modal-img" src="" class="w-full rounded-xl shadow-md border border-white">
+                    <div class="mt-4 text-center">
+                        <span id="modal-risk" class="px-3 py-1 rounded text-[11px] font-kanit font-medium border inline-block bg-white shadow-sm"></span>
+                    </div>
+                </div>
+                
+                <div class="w-full md:w-3/5 p-8">
+                    <h2 id="modal-name" class="text-2xl font-bold italic text-rsu-blue mb-2"></h2>
+                    <p id="modal-detail" class="text-slate-600 mb-6 text-sm leading-relaxed pb-4 border-b border-slate-100"></p>
+                    
+                    <div class="space-y-4">
+                        <div>
+                            <h4 class="text-slate-800 font-kanit font-medium text-sm flex items-center gap-2 mb-1.5"><svg class="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg> อาการทางคลินิก (Symptoms)</h4>
+                            <p id="modal-symptoms" class="text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-sm"></p>
+                        </div>
+                        <div>
+                            <h4 class="text-slate-800 font-kanit font-medium text-sm flex items-center gap-2 mb-1.5"><svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"></path></svg> แนวทางการรักษา/พยาบาล (Intervention)</h4>
+                            <p id="modal-treatment" class="text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-sm"></p>
+                        </div>
+                        <div>
+                            <h4 class="text-slate-800 font-kanit font-medium text-sm flex items-center gap-2 mb-1.5"><svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg> มาตรการป้องกัน (Preventive)</h4>
+                            <p id="modal-prevention" class="text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-200 shadow-sm"></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="delete-modal" class="modal-overlay" onclick="closeModal('delete-modal')">
+        <div id="delete-modal-box" class="bg-white/95 backdrop-blur-md w-full max-w-sm mx-4 rounded-2xl p-6 shadow-2xl border-t-4 border-red-600" onclick="event.stopPropagation()">
+            <h3 id="delete-title" class="text-xl font-semibold font-kanit text-slate-800 mb-1">ยืนยันการลบระเบียน?</h3>
+            <p id="delete-subtitle" class="text-slate-500 text-sm mb-5">การลบข้อมูลในระบบนี้จำเป็นต้องใช้รหัสผ่านยืนยันสิทธิ์</p>
+            <input type="password" id="delete-password" autocomplete="off" placeholder="กรอกรหัสผ่านผู้ดูแลระบบ" class="w-full bg-slate-50 border border-slate-300 focus:border-rsu-blue focus:ring-1 focus:ring-rsu-blue outline-none rounded-lg px-4 py-2.5 text-center text-sm font-kanit mb-2 transition-all">
+            <p id="delete-error" class="text-red-500 text-xs font-medium text-center mb-5 hidden"></p>
+            <div class="flex gap-2 mt-2">
+                <button onclick="closeModal('delete-modal')" class="flex-1 bg-white border border-slate-300 hover:bg-slate-50 py-2.5 rounded-lg font-kanit font-medium transition-all text-sm text-slate-600">ยกเลิก</button>
+                <button onclick="confirmDelete()" id="btn-confirm-delete" class="flex-1 bg-red-600 hover:bg-red-700 text-white py-2.5 rounded-lg font-kanit font-medium transition-all text-sm">ยืนยันการลบ</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const firebaseConfig = {
+            apiKey: "AIzaSyBieLOKu1yKct2EcVSOvyS4facF8aTsJAc",
+            authDomain: "bactoscan-app.firebaseapp.com",
+            projectId: "bactoscan-app",
+            storageBucket: "bactoscan-app.firebasestorage.app",
+            messagingSenderId: "29696331301",
+            appId: "1:29696331301:web:d9dc98a574375a6f38f9cc",
+            measurementId: "G-C6JRVVZCJ8"
+        };
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); }
+        const db = firebase.firestore();
+
+        const pathogens = [
+            { name: "Escherichia coli (E. coli)", detail: "แบคทีเรียแกรมลบรูปแท่ง (Gram-negative bacilli) มักพบในลำไส้ของสิ่งมีชีวิตเลือดอุ่น สายพันธุ์ก่อโรคอาจทำให้เกิดภาวะแทรกซ้อนรุนแรง", risk: "WARNING", symptoms: "ปวดเกร็งช่องท้อง, ท้องร่วง (อาจมีมูกเลือดปน), คลื่นไส้, อาเจียน, อาจพบไข้ต่ำถึงปานกลาง", treatment: "การประเมินภาวะขาดน้ำ (Dehydration) และให้สารน้ำทดแทน (ORT/IV fluid) พิจารณาให้ยาปฏิชีวนะในกรณีที่มีข้อบ่งชี้", prevention: "ส่งเสริมสุขวิทยาส่วนบุคคล ล้างมือตามหลัก 7 ขั้นตอน การสุขาภิบาลอาหารและน้ำอย่างถูกต้อง" },
+            { name: "Salmonella spp.", detail: "แบคทีเรียแกรมลบรูปแท่ง เป็นสาเหตุสำคัญของโรคอาหารเป็นพิษ (Food poisoning) และไข้ไทฟอยด์", risk: "CRITICAL", symptoms: "ไข้สูงเฉียบพลัน, หนาวสั่น, ปวดศีรษะ, ปวดเกร็งหน้าท้อง, ท้องร่วงรุนแรง, คลื่นไส้อาเจียน", treatment: "รักษาตามอาการ (Symptomatic treatment) ให้สารน้ำชดเชย ในผู้ป่วยที่มีความเสี่ยงสูงพิจารณาให้ Ceftriaxone หรือ Ciprofloxacin", prevention: "หลีกเลี่ยงเนื้อสัตว์และไข่ที่ปรุงไม่สุก แยกอุปกรณ์ประกอบอาหารสุก-ดิบอย่างชัดเจน (Prevent cross-contamination)" },
+            { name: "Staphylococcus aureus", detail: "แบคทีเรียแกรมบวกรูปค่อนข้างกลม จัดเรียงตัวเป็นกลุ่มคล้ายพวงองุ่น สามารถสร้าง Enterotoxin ที่ทนความร้อนได้สูง", risk: "CRITICAL", symptoms: "อาการแสดงรวดเร็วภายใน 1-6 ชม. หลังได้รับสารพิษ ได้แก่ คลื่นไส้รุนแรง อาเจียน ปวดท้องเกร็ง และท้องร่วง", treatment: "ดูแลให้ได้รับสารน้ำและเกลือแร่ทดแทน ไม่มีความจำเป็นต้องให้ยาปฏิชีวนะเพื่อทำลายสารพิษ (Toxin)", prevention: "ผู้สัมผัสอาหารต้องไม่มีแผลติดเชื้อที่มือ/ผิวหนัง เก็บรักษาอาหารปรุงสุกในอุณหภูมิที่เหมาะสม (<5°C หรือ >60°C)" },
+            { name: "Lactobacillus spp.", detail: "แบคทีเรียแกรมบวกรูปแท่ง เป็นแบคทีเรียชนิดดี (Normal flora/Probiotics) มีบทบาทในการสร้างกรดแลกติกและปรับสมดุลทางเดินอาหาร", risk: "SAFE", symptoms: "ไม่พบอาการก่อโรค (Non-pathogenic) ช่วยบรรเทาอาการท้องเสียจากการติดเชื้อเชื้อฉวยโอกาส", treatment: "ไม่ต้องรับการรักษาทางคลินิก", prevention: "ส่งเสริมการบริโภคผลิตภัณฑ์เสริมโปรไบโอติกส์ เพื่อเสริมสร้างภูมิคุ้มกันของเยื่อบุลำไส้" }
+        ];
+
+        let historyData = []; let currentScanResult = null; let isScanning = false;
+        const ADMIN_PASSWORD = "9999"; const SUPER_ADMIN_PASSWORD = "nurse2568";
+        let currentDeleteDocId = null; let failedAttempts = 0;
+
+        db.collection("scans").orderBy("timestamp", "desc").onSnapshot((snapshot) => {
+            historyData = [];
+            snapshot.forEach((doc) => { historyData.push({ ...doc.data(), docId: doc.id }); });
+            updateHistoryUI(); 
+        });
+
+        function handleFile(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        const scaleSize = 500 / img.width; canvas.width = 500; canvas.height = img.height * scaleSize;
+                        const ctx = canvas.getContext('2d'); ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        const compressedDataUrl = canvas.toDataURL('image/jpeg', 0.7); 
+                        const isDuplicate = historyData.some(item => item.image === compressedDataUrl);
+                        if(isDuplicate) { document.getElementById('duplicate-modal').classList.add('active'); document.getElementById('file-input').value = ""; return; }
+                        document.getElementById('preview-img').src = compressedDataUrl; document.getElementById('preview-img').classList.remove('hidden');
+                        document.getElementById('upload-ui').classList.add('hidden'); document.getElementById('analyze-btn').disabled = false;
+                        document.getElementById('image-container').classList.replace('py-24', 'py-0'); document.getElementById('image-container').classList.remove('border-dashed');
+                    }
+                    img.src = e.target.result;
+                }
+                reader.readAsDataURL(file);
+            }
+        }
+
+        function startScanning() {
+            if(isScanning) return; isScanning = true;
+            document.getElementById('image-container').classList.add('scanning');
+            const btn = document.getElementById('analyze-btn'); btn.disabled = true; btn.innerHTML = `<span class="animate-pulse">ระบบกำลังประมวลผล...</span>`;
+            setTimeout(() => {
+                isScanning = false; document.getElementById('image-container').classList.remove('scanning'); document.getElementById('upload-section').classList.add('hidden');
+                const info = pathogens[Math.floor(Math.random() * pathogens.length)];
+                currentScanResult = { name: info.name, detail: info.detail, risk: info.risk, symptoms: info.symptoms, treatment: info.treatment, prevention: info.prevention, image: document.getElementById('preview-img').src };
+                document.getElementById('rand-ref').innerText = Math.floor(1000 + Math.random() * 9000);
+                document.getElementById('live-result-img').src = currentScanResult.image; document.getElementById('live-result-name').innerText = currentScanResult.name;
+                document.getElementById('live-result-detail').innerText = currentScanResult.detail; document.getElementById('live-result-symptoms').innerText = currentScanResult.symptoms;
+                document.getElementById('live-result-treatment').innerText = currentScanResult.treatment;
+                const riskBadge = document.getElementById('live-result-risk'); riskBadge.innerText = currentScanResult.risk;
+                if(currentScanResult.risk === 'CRITICAL') riskBadge.className = 'px-2.5 py-0.5 rounded text-[11px] font-kanit font-medium bg-red-50 text-red-700 border border-red-200';
+                else if(currentScanResult.risk === 'WARNING') riskBadge.className = 'px-2.5 py-0.5 rounded text-[11px] font-kanit font-medium bg-amber-50 text-amber-700 border border-amber-200';
+                else riskBadge.className = 'px-2.5 py-0.5 rounded text-[11px] font-kanit font-medium bg-emerald-50 text-emerald-700 border border-emerald-200';
+                document.getElementById('result-section').classList.remove('hidden');
+            }, 2500); 
+        }
+
+        function saveResult() {
+            if(currentScanResult) {
+                const btn = document.getElementById('btn-save'); btn.innerText = "กำลังจัดเก็บข้อมูล..."; btn.disabled = true;
+                currentScanResult.timestamp = firebase.firestore.FieldValue.serverTimestamp();
+                db.collection("scans").add(currentScanResult).then(() => {
+                    currentScanResult = null; resetScannerUI(); showPage('history'); btn.innerText = "บันทึกข้อมูลเข้าสู่ระบบ"; btn.disabled = false;
+                });
+            }
+        }
+
+        function openDetailModal(docId) {
+            const item = historyData.find(d => d.docId === docId); if(!item) return;
+            document.getElementById('modal-img').src = item.image; document.getElementById('modal-name').innerText = item.name;
+            document.getElementById('modal-detail').innerText = item.detail; document.getElementById('modal-symptoms').innerText = item.symptoms || "ไม่มีข้อมูลในระเบียนนี้";
+            document.getElementById('modal-treatment').innerText = item.treatment || "ไม่มีข้อมูลในระเบียนนี้"; document.getElementById('modal-prevention').innerText = item.prevention || "ไม่มีข้อมูลในระเบียนนี้";
+            const riskBadge = document.getElementById('modal-risk'); riskBadge.innerText = `LEVEL: ${item.risk}`;
+            if(item.risk === 'CRITICAL') riskBadge.className = 'px-3 py-1 rounded text-xs font-kanit font-medium bg-red-100 text-red-800 border border-red-200';
+            else if(item.risk === 'WARNING') riskBadge.className = 'px-3 py-1 rounded text-xs font-kanit font-medium bg-amber-100 text-amber-800 border border-amber-200';
+            else riskBadge.className = 'px-3 py-1 rounded text-xs font-kanit font-medium bg-emerald-100 text-emerald-800 border border-emerald-200';
+            document.getElementById('detail-modal').classList.add('active');
+        }
+
+        function promptDelete(docId, event) {
+            event.stopPropagation(); currentDeleteDocId = docId; document.getElementById('delete-password').value = ''; document.getElementById('delete-error').classList.add('hidden');
+            if (failedAttempts >= 5) { document.getElementById('delete-title').innerText = "Super Admin Authentication"; document.getElementById('delete-subtitle').innerText = "กรุณากรอกรหัสพยาบาลวิชาชีพเพื่อลบข้อมูล"; document.getElementById('delete-password').placeholder = "Enter Super Admin Code..."; }
+            else { document.getElementById('delete-title').innerText = "ยืนยันการลบระเบียน?"; document.getElementById('delete-subtitle').innerText = "การลบข้อมูลในระบบนี้จำเป็นต้องใช้รหัสผ่านยืนยันสิทธิ์"; document.getElementById('delete-password').placeholder = "กรอกรหัสผ่านผู้ดูแลระบบ"; }
+            document.getElementById('delete-modal').classList.add('active'); setTimeout(() => document.getElementById('delete-password').focus(), 100);
+        }
+
+        function confirmDelete() {
+            const pwdInput = document.getElementById('delete-password').value; const errorText = document.getElementById('delete-error');
+            const requiredPassword = (failedAttempts >= 5) ? SUPER_ADMIN_PASSWORD : ADMIN_PASSWORD;
+            if (pwdInput === requiredPassword) { closeModal('delete-modal'); failedAttempts = 0; document.getElementById('security-alert').classList.add('-translate-y-full'); db.collection("scans").doc(currentDeleteDocId).delete(); }
+            else {
+                failedAttempts++;
+                if (failedAttempts >= 5) { errorText.innerText = "AUTHENTICATION FAILED: ระบบถูกล็อก"; closeModal('delete-modal'); document.getElementById('security-alert').classList.remove('-translate-y-full'); }
+                else { errorText.innerText = `รหัสไม่ถูกต้อง กรุณาลองใหม่ (${failedAttempts}/5)`; errorText.classList.remove('hidden'); }
+                document.getElementById('delete-password').value = ''; document.getElementById('delete-password').focus();
+            }
+        }
+
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active')); document.getElementById('page-' + pageId).classList.add('active');
+            document.getElementById('page-title').innerText = pageId === 'history' ? 'ฐานข้อมูลผลการวิเคราะห์ทางห้องปฏิบัติการ' : 'เครื่องมือสแกนและประเมินทางจุลชีววิทยา';
+            if(pageId === 'history') {
+                document.getElementById('nav-history').className = "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-kanit font-medium text-sm bg-pink-50/80 text-rsu-pink border-r-4 border-rsu-pink shadow-sm";
+                document.getElementById('nav-scanner').className = "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-kanit font-medium text-sm text-slate-500 hover:bg-white/60 hover:text-slate-800 border-r-4 border-transparent";
+            } else {
+                document.getElementById('nav-history').className = "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-kanit font-medium text-sm text-slate-500 hover:bg-white/60 hover:text-slate-800 border-r-4 border-transparent";
+                document.getElementById('nav-scanner').className = "w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all font-kanit font-medium text-sm bg-pink-50/80 text-rsu-pink border-r-4 border-rsu-pink shadow-sm";
+            }
+        }
+
+        function resetScannerUI() {
+            document.getElementById('file-input').value = ""; document.getElementById('preview-img').src = ""; document.getElementById('preview-img').classList.add('hidden');
+            document.getElementById('image-container').classList.replace('py-0', 'py-24'); document.getElementById('image-container').classList.add('border-dashed');
+            document.getElementById('upload-ui').classList.remove('hidden'); document.getElementById('result-section').classList.add('hidden');
+            document.getElementById('upload-section').classList.remove('hidden'); document.getElementById('analyze-btn').disabled = true;
+            document.getElementById('analyze-btn').innerText = "เริ่มต้นการวิเคราะห์ (Initiate Diagnostic)";
+        }
+
+        function updateHistoryUI() {
+            const container = document.getElementById('history-container');
+            if (historyData.length === 0) {
+                container.innerHTML = `<div class="col-span-full py-16 text-center text-slate-400 glass-card rounded-xl mt-4"><svg class="w-12 h-12 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg><p class="font-kanit font-medium text-slate-500">ยังไม่มีข้อมูลในระบบฐานข้อมูล</p></div>`;
+                document.getElementById('scan-count').innerText = 0; return;
+            }
+            document.getElementById('scan-count').innerText = historyData.length; container.innerHTML = "";
+            historyData.forEach((item) => {
+                let badgeClass = '';
+                if(item.risk === 'CRITICAL') badgeClass = 'bg-red-50 text-red-600 border-red-200';
+                else if(item.risk === 'WARNING') badgeClass = 'bg-amber-50 text-amber-600 border-amber-200';
+                else badgeClass = 'bg-emerald-50 text-emerald-600 border-emerald-200';
+
+                const card = `
+                    <div onclick="openDetailModal('${item.docId}')" class="glass-card rounded-xl overflow-hidden relative hover:-translate-y-1 hover:shadow-xl hover:border-rsu-blue transition-all duration-300 cursor-pointer group">
+                        <button onclick="promptDelete('${item.docId}', event)" class="absolute top-3 right-3 bg-white/90 backdrop-blur hover:bg-red-600 text-slate-400 hover:text-white p-2 rounded-lg z-10 shadow-sm border border-slate-200 hover:border-red-600 transition-colors opacity-0 group-hover:opacity-100">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                        <div class="h-40 overflow-hidden bg-white/50 border-b border-white"><img src="${item.image}" class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"></div>
+                        <div class="p-5 bg-white/60">
+                            <span class="${badgeClass} px-2 py-0.5 rounded border text-[10px] font-kanit font-medium tracking-wide bg-white shadow-sm">${item.risk}</span>
+                            <h3 class="font-bold italic text-slate-800 text-lg mt-3 mb-1 truncate">${item.name}</h3>
+                            <p class="text-slate-500 text-xs line-clamp-2 leading-relaxed">${item.detail}</p>
+                        </div>
+                    </div>`;
+                container.insertAdjacentHTML('beforeend', card);
+            });
+        }
+
+        function closeModal(modalId) { document.getElementById(modalId).classList.remove('active'); }
+        function dismissSecurityAlert() { document.getElementById('security-alert').classList.add('-translate-y-full'); }
+        function discardAndRetry() { currentScanResult = null; resetScannerUI(); }
+        document.getElementById('delete-password').addEventListener("keypress", function(e) { if(e.key === "Enter") confirmDelete(); });
+    </script>
+</body>
+</html>
